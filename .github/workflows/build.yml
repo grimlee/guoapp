@@ -53,7 +53,7 @@ jobs:
         continue-on-error: true
 
   android:
-    if: github.ref != 'refs/heads/linux-omarchy' && github.head_ref != 'linux-omarchy'
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -210,8 +210,7 @@ jobs:
       - uses: actions/checkout@v4
 
   ios:
-    if: false
-    needs: checks
+    if: github.event_name != 'pull_request'
     runs-on: macos-latest
     timeout-minutes: 60
     strategy:
@@ -224,13 +223,55 @@ jobs:
             arguments: '--all-sources'
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: native/go.mod
+          cache-dependency-path: native/go.sum
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.4'
+          channel: stable
+          cache: true
+      - name: Verify Apple build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          flutter doctor -v
+          if ! command -v pod >/dev/null 2>&1; then
+            sudo gem install cocoapods
+          fi
+          pod --version
+      - name: Build unsigned iOS IPA
+        run: python scripts/build_ios.py ${{ matrix.arguments }}
+      - name: Validate unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          ipa=$(find dist/ios -maxdepth 1 -name '*-ios-unsigned.ipa' -print -quit)
+          appzip=$(find dist/ios -maxdepth 1 -name '*-ios-unsigned-app.zip' -print -quit)
+          test -n "$ipa"
+          test -n "$appzip"
+          test -f dist/ios/SHA256SUMS.txt
+          unzip -l "$ipa" | grep -q 'Payload/Runner.app/Runner'
+          shasum -a 256 "$ipa" "$appzip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.edition }}-ios-unsigned
+          path: dist/ios/*
+          if-no-files-found: error
+          retention-days: 14
 
   release:
-    needs: [android, linux]
+    needs: [linux, ios]
     if: >-
       always() &&
-      needs.android.result == 'success' &&
       needs.linux.result == 'success' &&
+      needs.ios.result == 'success' &&
       github.event_name != 'pull_request' &&
       (github.ref == 'refs/heads/main' ||
        github.ref == 'refs/heads/master' ||
@@ -270,33 +311,16 @@ jobs:
           set -euo pipefail
           version=$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n1)
           tag="app-v${version//+/-}"
-          apk_note="Android（已用固定发布证书签名，可覆盖安装升级，无需卸载）："
-          if printf '%s\n' "${{ vars.ANDROID_CERT_SHA256 }}" | grep -q .; then
-            apk_note="Android（已用固定发布证书签名，可覆盖安装升级，无需卸载）："
-          else
-            apk_note="Android（未配置发布签名，当前为 debug 签名，仅供测试，不能覆盖正式版安装）："
-          fi
           {
             printf '%s\n\n' "版本 ${version}。两个版本功能相同，区别只在站源范围，按需选择："
             printf '%s\n' "- 红果鉴 hongguojian：仅红果站源"
             printf '%s\n' "- 真果鉴 zhenguojian：全部站源"
-            printf '\n%s\n' "$apk_note"
-            printf '%s\n' "- *-arm64-v8a.apk：绝大多数手机选这个"
-            printf '%s\n' "- *-armeabi-v7a.apk：较老的 32 位手机"
-            printf '%s\n' "- *-x86_64.apk：模拟器"
             printf '\n%s\n' "iOS（未签名，需自行签名后才能安装）："
             printf '%s\n' "- *-ios-unsigned.ipa：未签名 IPA，用 AltStore / Sideloadly / TrollStore 等工具自签后安装"
             printf '%s\n' "- *-ios-unsigned-app.zip：未签名 Runner.app 压缩包，供自行签名 / 打包使用"
             printf '\n%s\n' "Linux / Omarchy（解压后运行 hongguojian 或 zhenguojian）："
             printf '%s\n' "- *-linux-x86_64.tar.gz：Linux x86_64 完整 bundle；优先面向 Arch/Omarchy + Wayland/Hyprland 验证"
-            printf '\n%s\n' "Windows（解压后运行 hongguojian.exe 或 zhenguojian.exe）："
-            printf '%s\n' "- *-windows-x64.zip：Windows 10/11 x64 完整包；构建机没有音频和图形设备，播放自检未通过，未做设备验收"
             printf '\n%s\n' "校验：SHA256SUMS.txt"
-            if printf '%s\n' "${{ vars.ANDROID_CERT_SHA256 }}" | grep -q .; then
-              printf '%s\n' "签名证书 SHA-256：${{ vars.ANDROID_CERT_SHA256 }}"
-            else
-              printf '%s\n' "签名证书：未配置（当前为 debug 签名）"
-            fi
           } > notes.md
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" release/* --clobber
