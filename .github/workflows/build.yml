@@ -2,7 +2,7 @@ name: Build app packages
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, linux-omarchy]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -53,6 +53,7 @@ jobs:
         continue-on-error: true
 
   android:
+    if: github.ref != 'refs/heads/linux-omarchy'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -138,6 +139,60 @@ jobs:
           path: dist/android/*
           if-no-files-found: error
           retention-days: 14
+  linux:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - edition: hongguojian
+            arguments: ''
+          - edition: zhenguojian
+            arguments: '--all-sources'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: native/go.mod
+          cache-dependency-path: native/go.sum
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.4'
+          channel: stable
+          cache: true
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libmpv-dev libavahi-client-dev libayatana-appindicator3-dev
+      - run: python scripts/build_linux.py ${{ matrix.arguments }}
+      - name: Validate Linux bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle=$(find build/linux -type d -path '*/release/bundle' -print -quit)
+          test -n "$bundle"
+          test -x "$bundle/duanju_app"
+          test -f "$bundle/lib/libduanju_core.so"
+          if ldd "$bundle/duanju_app" | grep -q 'not found'; then
+            ldd "$bundle/duanju_app"
+            exit 1
+          fi
+          if ldd "$bundle/lib/libduanju_core.so" | grep -q 'not found'; then
+            ldd "$bundle/lib/libduanju_core.so"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.edition }}-linux-x86_64
+          path: dist/linux/*
+          if-no-files-found: error
+          retention-days: 14
+
   windows:
     if: false
     needs: checks
@@ -171,8 +226,15 @@ jobs:
       - uses: actions/checkout@v4
 
   release:
-    needs: [android]
-    if: always() && needs.android.result == 'success'
+    needs: [android, linux]
+    if: >-
+      always() &&
+      needs.android.result == 'success' &&
+      needs.linux.result == 'success' &&
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' ||
+       github.ref == 'refs/heads/master' ||
+       startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -225,6 +287,8 @@ jobs:
             printf '\n%s\n' "iOS（未签名，需自行签名后才能安装）："
             printf '%s\n' "- *-ios-unsigned.ipa：未签名 IPA，用 AltStore / Sideloadly / TrollStore 等工具自签后安装"
             printf '%s\n' "- *-ios-unsigned-app.zip：未签名 Runner.app 压缩包，供自行签名 / 打包使用"
+            printf '\n%s\n' "Linux / Omarchy（解压后运行 hongguojian 或 zhenguojian）："
+            printf '%s\n' "- *-linux-x86_64.tar.gz：Linux x86_64 完整 bundle；优先面向 Arch/Omarchy + Wayland/Hyprland 验证"
             printf '\n%s\n' "Windows（解压后运行 hongguojian.exe 或 zhenguojian.exe）："
             printf '%s\n' "- *-windows-x64.zip：Windows 10/11 x64 完整包；构建机没有音频和图形设备，播放自检未通过，未做设备验收"
             printf '\n%s\n' "校验：SHA256SUMS.txt"

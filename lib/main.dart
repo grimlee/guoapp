@@ -24,12 +24,12 @@ import 'diary_service.dart';
 
 Future<void> main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
-  DiaryService.add('[App] 应用启动，版本: 0.2.64+71, 平台: ${Platform.operatingSystem}');
+  DiaryService.add('[App] 应用启动，版本: 0.2.65+72, 平台: ${Platform.operatingSystem}');
   if (Platform.isAndroid) {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setSystemUIOverlayStyle(AppTheme.systemBars(Brightness.dark));
   }
-  if (Platform.isWindows) {
+  if (Platform.isWindows || Platform.isLinux) {
     await windowManager.ensureInitialized();
   }
   MediaKit.ensureInitialized();
@@ -127,7 +127,7 @@ class _AppBootstrapState extends State<AppBootstrap>
             store!,
             kind: device.television
                 ? 'tv'
-                : Platform.isWindows
+                : Platform.isWindows || Platform.isLinux
                 ? 'computer'
                 : 'phone',
           );

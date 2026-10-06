@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import re
 import shutil
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from app_build import BuildVariant, add_variant_argument
 
 root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
-parser.add_argument('--platform', choices=['android', 'windows'], required=True)
+parser.add_argument('--platform', choices=['android', 'windows', 'linux'], required=True)
 parser.add_argument('--abi', action='append', choices=['arm64-v8a', 'armeabi-v7a', 'x86_64'])
 add_variant_argument(parser)
 options = parser.parse_args()
@@ -37,7 +38,7 @@ if options.platform == 'android':
         target = output / f'{variant.slug}-{version}-{abi}.apk'
         shutil.copy2(source, target)
         artifacts.append(target)
-else:
+elif options.platform == 'windows':
     bundle = root / 'build' / 'windows' / 'x64' / 'runner' / 'Release'
     required = ['zhenguojian.exe', 'duanju_core.dll', 'flutter_windows.dll', 'libffmpegkit.dll',
                 'libmpv-2.dll', 'msvcp140.dll', 'vcruntime140.dll',
@@ -53,6 +54,32 @@ else:
                 if relative == 'zhenguojian.exe':
                     relative = variant.slug + '.exe'
                 archive.write(source, relative)
+    artifacts.append(target)
+else:
+    bundles = sorted((root / 'build' / 'linux').glob('*/release/bundle'))
+    if len(bundles) != 1:
+        raise SystemExit('无法定位唯一的 Linux Flutter bundle。')
+    bundle = bundles[0]
+    required = ['duanju_app', 'data/icudtl.dat', 'lib/libapp.so',
+                'lib/libflutter_linux_gtk.so', 'lib/libduanju_core.so']
+    missing = [name for name in required if not (bundle / name).is_file()]
+    if missing:
+        raise SystemExit('Linux 安装包缺少文件：' + ', '.join(missing))
+    architecture = bundle.parents[1].name
+    architecture = {'x64': 'x86_64', 'arm64': 'aarch64'}.get(architecture, architecture)
+    target = output / f'{variant.slug}-{version}-linux-{architecture}.tar.gz'
+    with tarfile.open(target, 'w:gz') as archive:
+        for source in sorted(bundle.rglob('*')):
+            if not source.is_file():
+                continue
+            relative = source.relative_to(bundle)
+            if relative.as_posix() == 'duanju_app':
+                relative = Path(variant.slug)
+            archive.add(
+                source,
+                arcname=(Path(variant.slug) / relative).as_posix(),
+                recursive=False,
+            )
     artifacts.append(target)
 
 checksums = []

@@ -9,7 +9,7 @@ from app_build import BuildVariant, add_variant_argument
 
 root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
-parser.add_argument('--platform', choices=['android', 'windows', 'darwin'], required=True)
+parser.add_argument('--platform', choices=['android', 'windows', 'linux', 'darwin'], required=True)
 parser.add_argument('--abi', action='append', choices=['arm64-v8a', 'armeabi-v7a', 'x86_64'])
 add_variant_argument(parser)
 options = parser.parse_args()
@@ -69,6 +69,14 @@ elif options.platform == 'windows':
         raise SystemExit('请安装 MinGW-w64，并将其 bin 目录加入 PATH。')
     build('windows', 'amd64', compiler, root / 'windows' / 'runner' / 'duanju_core.dll',
           {'CGO_LDFLAGS': '-static-libgcc'})
+elif options.platform == 'linux':
+    compiler = shutil.which('cc') or shutil.which('gcc') or shutil.which('clang')
+    if not compiler:
+        raise SystemExit('请安装 Linux C 编译器（gcc 或 clang）。')
+    machine = platform.machine().lower()
+    architecture = 'arm64' if machine in {'aarch64', 'arm64'} else 'amd64'
+    build('linux', architecture, compiler,
+          root / 'native' / 'build' / 'linux' / 'libduanju_core.so')
 else:
     compiler = shutil.which('clang')
     if not compiler:
