@@ -168,7 +168,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libmpv-dev libavahi-client-dev libayatana-appindicator3-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libmpv-dev libjson-glib-dev libavahi-client-dev libayatana-appindicator3-dev
       - run: python scripts/build_linux.py ${{ matrix.arguments }}
       - name: Validate Linux bundle
         shell: bash

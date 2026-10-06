@@ -122,7 +122,8 @@ class _AppBootstrapState extends State<AppBootstrap>
           repository.access = store;
           MediaLibrary.attach(repository, store!);
           LanController.current?.dispose();
-          final link = LanController(
+          if (!Platform.isLinux) {
+            final link = LanController(
             repository,
             store!,
             kind: device.television
@@ -168,6 +169,7 @@ class _AppBootstrapState extends State<AppBootstrap>
               ),
             );
           };
+          }
         });
       }
     } catch (failure) {
