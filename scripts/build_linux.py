@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from build_mirrors import china_mirror_environment, mirrored_pub_lockfile
@@ -21,11 +22,6 @@ flutter = shutil.which('flutter')
 if not flutter:
     raise SystemExit('请先将 Flutter SDK 的 bin 目录加入 PATH。')
 
-tracked_snapshots = {}
-for name in ['.metadata', '.gitignore', 'pubspec.yaml', 'analysis_options.yaml']:
-    path = root / name
-    tracked_snapshots[path] = path.read_bytes() if path.is_file() else None
-
 linux = root / 'linux'
 generated_linux = not linux.exists()
 
@@ -33,14 +29,17 @@ try:
     with china_mirror_environment(environment, options.cn_mirrors, gradle=False) as env:
         with mirrored_pub_lockfile(root, env):
             if generated_linux:
-                subprocess.run([
-                    flutter, 'create',
-                    '--platforms=linux',
-                    '--project-name', 'duanju_app',
-                    '--org', 'com.duanju',
-                    '--no-pub',
-                    '.',
-                ], cwd=root, env=env, check=True)
+                with tempfile.TemporaryDirectory(prefix='duanju-linux-host-') as temporary:
+                    host_root = Path(temporary) / 'duanju_app'
+                    subprocess.run([
+                        flutter, 'create',
+                        '--platforms=linux',
+                        '--project-name', 'duanju_app',
+                        '--org', 'com.duanju',
+                        '--no-pub',
+                        str(host_root),
+                    ], cwd=root, env=env, check=True)
+                    shutil.copytree(host_root / 'linux', linux)
 
             runner = linux / 'runner' / 'my_application.cc'
             if runner.is_file():
@@ -81,9 +80,3 @@ try:
 finally:
     if generated_linux:
         shutil.rmtree(linux, ignore_errors=True)
-    for path, content in tracked_snapshots.items():
-        if content is None:
-            if path.exists():
-                path.unlink()
-        else:
-            path.write_bytes(content)
