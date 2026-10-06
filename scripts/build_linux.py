@@ -24,6 +24,8 @@ if not flutter:
 
 linux = root / 'linux'
 generated_linux = not linux.exists()
+lockfile = root / 'pubspec.lock'
+original_lockfile = lockfile.read_bytes()
 
 try:
     with china_mirror_environment(environment, options.cn_mirrors, gradle=False) as env:
@@ -47,7 +49,7 @@ try:
                 source = source.replace('"duanju_app"', '"' + variant.slug + '"')
                 runner.write_text(source, encoding='utf-8')
 
-            subprocess.run([flutter, 'pub', 'get', '--enforce-lockfile'],
+            subprocess.run([flutter, 'pub', 'get'],
                            cwd=root, env=env, check=True)
             subprocess.run([
                 sys.executable,
@@ -80,3 +82,4 @@ try:
 finally:
     if generated_linux:
         shutil.rmtree(linux, ignore_errors=True)
+    lockfile.write_bytes(original_lockfile)
