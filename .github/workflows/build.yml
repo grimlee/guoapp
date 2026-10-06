@@ -259,7 +259,21 @@ jobs:
           test -n "$ipa"
           test -n "$appzip"
           test -f dist/ios/SHA256SUMS.txt
-          unzip -l "$ipa" | grep -q 'Payload/Runner.app/Runner'
+          python - "$ipa" <<'PY'
+          import sys
+          import zipfile
+
+          ipa = sys.argv[1]
+          with zipfile.ZipFile(ipa) as archive:
+              names = set(archive.namelist())
+          required = {
+              'Payload/Runner.app/Runner',
+              'Payload/Runner.app/Info.plist',
+          }
+          missing = sorted(required - names)
+          if missing:
+              raise SystemExit('IPA missing required entries: ' + ', '.join(missing))
+          PY
           shasum -a 256 "$ipa" "$appzip"
       - uses: actions/upload-artifact@v4
         with:
