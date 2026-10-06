@@ -246,6 +246,8 @@ jobs:
             sudo gem install cocoapods
           fi
           pod --version
+      - name: Resolve iOS Flutter dependencies
+        run: flutter pub get
       - name: Build unsigned iOS IPA
         run: python scripts/build_ios.py ${{ matrix.arguments }}
       - name: Validate unsigned IPA
